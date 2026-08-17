@@ -41,7 +41,9 @@ Grounded Answer
 
 This approach can help provide answers based on a specific knowledge source and reduce reliance on the model's general knowledge.
 
-🏗️ Architecture
+## 🏗️ Architecture
+
+
                     Knowledge Source
                           │
                           ▼
@@ -84,6 +86,12 @@ This approach can help provide answers based on a specific knowledge source and 
                           │
                           ▼
                        Answer
+```
+
+---
+
+## 🔄 Pipeline
+
 🔄 Pipeline
 1. Document Extraction
 
@@ -369,5 +377,3 @@ Persistent knowledge bases
 RAG prompt construction
 Context-grounded generation
 Separation of retrieval and generation layers
-
-
