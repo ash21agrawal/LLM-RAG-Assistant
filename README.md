@@ -2,378 +2,528 @@
 
 An end-to-end Retrieval-Augmented Generation (RAG) pipeline that retrieves relevant information from a technical document using semantic search and generates context-grounded answers with an LLM.
 
-## 📌 Project Overview
+## Project Overview
 
-This project implements a custom RAG pipeline to understand and demonstrate the core components of Retrieval-Augmented Generation.
+This project implements a custom Retrieval-Augmented Generation pipeline to understand the core components of a RAG system rather than treating RAG as a black-box workflow.
 
 The current knowledge source is the research paper:
 
 **Attention Is All You Need**
 
-The system retrieves relevant sections from the document based on the user's query and provides those sections as context to an LLM before generating an answer.
+The system processes the document, divides it into smaller chunks, generates semantic embeddings, stores the knowledge base, and uses FAISS for similarity-based retrieval.
 
-The goal of this Phase-I implementation is to understand the internal RAG workflow instead of treating RAG as a black-box system.
+For every user query, the most relevant document chunks are retrieved and supplied to the LLM as context before generating the final answer.
 
 ---
 
-## 🧠 What is RAG?
+## What is RAG?
 
 Retrieval-Augmented Generation combines information retrieval with Large Language Models.
 
-Instead of asking the LLM to answer a question using only its internal knowledge, the system first retrieves relevant information from an external knowledge base and provides it as context.
+Instead of relying only on the LLM's internal knowledge, RAG retrieves relevant information from an external knowledge source and provides it to the model as context.
 
-The workflow is:
+The basic workflow is:
 
-```text
-User Query
-    ↓
-Query Embedding
-    ↓
-Vector Similarity Search
-    ↓
-Relevant Document Chunks
-    ↓
-RAG Prompt
-    ↓
-LLM
-    ↓
-Grounded Answer
+    User Query
+         |
+         v
+    Query Embedding
+         |
+         v
+    Vector Similarity Search
+         |
+         v
+    Relevant Document Chunks
+         |
+         v
+    RAG Prompt
+         |
+         v
+    LLM
+         |
+         v
+    Grounded Answer
 
-This approach can help provide answers based on a specific knowledge source and reduce reliance on the model's general knowledge.
-
-## 🏗️ Architecture
-
-
-                    Knowledge Source
-                          │
-                          ▼
-                         PDF
-                          │
-                          ▼
-                  Text Extraction
-                          │
-                          ▼
-                       Chunking
-                          │
-                          ▼
-                Sentence Transformer
-                     Embeddings
-                          │
-                ┌─────────┴─────────┐
-                ▼                   ▼
-        knowledge_base.pkl     FAISS Index
-        chunks + embeddings    vector search
-                │                   │
-                └─────────┬─────────┘
-                          │
-                          ▼
-                     User Query
-                          │
-                          ▼
-                   Query Embedding
-                          │
-                          ▼
-                   FAISS Search
-                          │
-                          ▼
-                    Top-K Chunks
-                          │
-                          ▼
-                     RAG Prompt
-                          │
-                          ▼
-                       LLM API
-                          │
-                          ▼
-                       Answer
-```
+This approach allows an LLM to answer questions using information retrieved from a specific knowledge source.
 
 ---
 
-## 🔄 Pipeline
+## Architecture
 
-🔄 Pipeline
-1. Document Extraction
+    Knowledge Source
+           |
+           v
+          PDF
+           |
+           v
+    Text Extraction
+           |
+           v
+        Chunking
+           |
+           v
+    Sentence Transformer
+       Embeddings
+           |
+           +----------------------+
+           |                      |
+           v                      v
+    knowledge_base.pkl       FAISS Index
+    chunks + embeddings      vector search
+           |                      |
+           +----------+-----------+
+                      |
+                      v
+                 User Query
+                      |
+                      v
+              Query Embedding
+                      |
+                      v
+                 FAISS Search
+                      |
+                      v
+                 Top-K Chunks
+                      |
+                      v
+                  RAG Prompt
+                      |
+                      v
+                    LLM API
+                      |
+                      v
+                   Answer
 
-The PDF text is extracted using pypdf.
+---
 
-The current knowledge source contains 15 pages.
+## Pipeline
 
-2. Text Chunking
+### 1. Document Extraction
 
-The extracted text is divided into smaller overlapping chunks using LangChain's RecursiveCharacterTextSplitter.
+The PDF document is processed and its text is extracted using `pypdf`.
 
-Current configuration:
+### 2. Text Chunking
 
-Chunk size: 500 characters
-Chunk overlap: 50 characters
-Total chunks: 89
+The extracted text is divided into smaller overlapping chunks using LangChain's text splitting utilities.
 
-The overlap helps preserve context between neighboring chunks.
+The current implementation uses:
 
-3. Embeddings
+- Chunk size: 500 characters
+- Chunk overlap: 50 characters
+- Total chunks in the current knowledge source: 89
 
-Each document chunk is converted into a numerical vector using:
+Chunk overlap helps preserve contextual information between neighboring chunks.
 
-all-MiniLM-L6-v2
+### 3. Embedding Generation
 
-The resulting embeddings have:
+Each document chunk is converted into a semantic vector using the Sentence Transformers model:
 
-384 dimensions
+    all-MiniLM-L6-v2
 
-For the current document:
+The generated embeddings have 384 dimensions.
 
-89 chunks × 384 dimensions
-4. Persistent Knowledge Base
+For the current knowledge source:
+
+    89 chunks × 384 dimensions
+
+### 4. Persistent Knowledge Base
 
 The chunks and their embeddings are stored locally in:
 
-data/knowledge_base.pkl
+    data/knowledge_base.pkl
 
-This allows the application to reuse the previously generated chunks and embeddings instead of processing and embedding the PDF every time the application starts.
+This allows the application to reuse the generated knowledge base instead of processing and embedding the document every time.
 
-5. FAISS Vector Search
+The `data/` directory is excluded from version control because these are generated artifacts.
 
-FAISS is used for semantic similarity search over the document embeddings.
+### 5. FAISS Vector Search
 
-The embeddings are L2-normalized and searched using:
+FAISS is used to perform efficient similarity search over the document embeddings.
 
-FAISS IndexFlatIP
+The implementation uses:
 
-For normalized vectors, inner product search corresponds to cosine similarity.
+    FAISS IndexFlatIP
 
-The system retrieves the top 3 most relevant chunks for each query.
+The embeddings are L2-normalized before indexing. For normalized vectors, Inner Product search corresponds to cosine similarity.
 
-The FAISS index is persisted locally as:
+For every user query, the system retrieves the top 3 most relevant chunks.
 
-data/faiss_index.bin
+### 6. Persistent FAISS Index
 
-This allows the application to load the existing vector index instead of rebuilding it on every startup.
+The FAISS index is saved locally as:
 
-6. RAG Prompt
+    data/faiss_index.bin
 
-The retrieved chunks are combined with the user's question and supplied to the LLM as context.
+On subsequent application runs, the existing FAISS index is loaded from disk instead of being rebuilt.
 
-The prompt instructs the model to answer using only the retrieved context.
+This separates the one-time knowledge-base/index creation process from repeated query-time retrieval.
 
-7. Answer Generation
+### 7. Query Processing
+
+When the user enters a question:
+
+    User Query
+         |
+         v
+    Query Embedding
+         |
+         v
+    Normalization
+         |
+         v
+    FAISS Similarity Search
+         |
+         v
+    Top 3 Relevant Chunks
+
+The retrieved chunks are then passed to the generation layer.
+
+### 8. RAG Prompt Construction
+
+The retrieved chunks are inserted into a prompt along with the user's question.
+
+The prompt instructs the LLM to answer using the supplied context.
+
+### 9. Answer Generation
 
 The final answer is generated using the OpenAI API.
 
-🛠️ Tech Stack
-Python 3.11
-pypdf
-LangChain Text Splitters
-Sentence Transformers
-FAISS
-NumPy
-Scikit-learn
-OpenAI API
-python-dotenv
-Conda
-📁 Project Structure
-LLM-RAG-Assistant/
-│
-├── app/
-│   ├── extract_text.py
-│   ├── chunk_text.py
-│   ├── embeddings.py
-│   ├── retrieve.py
-│   ├── generate_answer.py
-│   ├── faiss_test.py
-│   └── test_api.py
-│
-├── documents/
-│   └── attention_is_all_you_need.pdf
-│
-├── data/
-│   ├── knowledge_base.pkl
-│   └── faiss_index.bin
-│
-├── notebooks/
-│
-├── .gitignore
-├── requirements.txt
-└── README.md
+---
 
-data/ contains generated knowledge-base and FAISS files and is excluded from version control.
+## Technology Stack
 
-⚙️ Setup
-1. Clone the repository
-git clone https://github.com/ash21agrawal/LLM-RAG-Assistant.git
-cd LLM-RAG-Assistant
-2. Create the Conda environment
-conda create -n llm-rag python=3.11
-conda activate llm-rag
-3. Install dependencies
-python -m pip install -r requirements.txt
-4. Configure the OpenAI API key
+| Technology | Purpose |
+|---|---|
+| Python 3.11 | Programming language |
+| pypdf | PDF text extraction |
+| LangChain Text Splitters | Text chunking |
+| Sentence Transformers | Semantic embeddings |
+| all-MiniLM-L6-v2 | Embedding model |
+| FAISS | Vector similarity search |
+| NumPy | Numerical and vector operations |
+| Scikit-learn | Similarity experiments and development |
+| OpenAI API | LLM-based answer generation |
+| python-dotenv | Environment variable management |
+| Conda | Environment management |
 
-Create a file:
+---
 
-app/.env
+## Project Structure
+
+    LLM-RAG-Assistant/
+    |
+    +-- app/
+    |   +-- extract_text.py
+    |   +-- chunk_text.py
+    |   +-- embeddings.py
+    |   +-- retrieve.py
+    |   +-- generate_answer.py
+    |   +-- faiss_test.py
+    |   +-- test_api.py
+    |
+    +-- documents/
+    |   +-- attention_is_all_you_need.pdf
+    |
+    +-- data/
+    |   +-- knowledge_base.pkl
+    |   +-- faiss_index.bin
+    |
+    +-- notebooks/
+    |
+    +-- .gitignore
+    +-- requirements.txt
+    +-- README.md
+
+Note: The `data/` directory contains generated files and is excluded from Git version control.
+
+The `.env` file containing the API key is also excluded from version control.
+
+---
+
+## Setup
+
+### 1. Clone the Repository
+
+    git clone https://github.com/ash21agrawal/LLM-RAG-Assistant.git
+    cd LLM-RAG-Assistant
+
+### 2. Create the Conda Environment
+
+    conda create -n llm-rag python=3.11
+    conda activate llm-rag
+
+### 3. Install Dependencies
+
+    python -m pip install -r requirements.txt
+
+### 4. Configure the OpenAI API Key
+
+Create:
+
+    app/.env
 
 Add:
 
-OPENAI_API_KEY=your_api_key_here
+    OPENAI_API_KEY=your_api_key_here
 
-Never commit the .env file to GitHub.
+Never commit the `.env` file to GitHub.
 
-▶️ Running the Project
+---
 
-After cloning the repository, the generated files inside data/ will not be present because they are excluded from version control.
+## Running the Project
+
+The current implementation uses the PDF placed inside the `documents/` directory as the knowledge source.
+
+### First Run
 
 Run:
 
-python app/retrieve.py
+    python app/retrieve.py
 
-On the first run, the system will:
+On the first run, the system creates the knowledge base and FAISS index.
 
-PDF
- ↓
-Extract text
- ↓
-Create chunks
- ↓
-Generate embeddings
- ↓
-Save knowledge_base.pkl
- ↓
-Create FAISS index
- ↓
-Save faiss_index.bin
+The process is:
 
-On subsequent runs, the system loads the existing knowledge base and FAISS index instead of rebuilding them.
+    PDF
+     |
+     v
+    Text Extraction
+     |
+     v
+    Chunking
+     |
+     v
+    Embedding Generation
+     |
+     v
+    knowledge_base.pkl
+     |
+     v
+    FAISS Index
+     |
+     v
+    faiss_index.bin
 
-The complete RAG application can then be started using:
+### Subsequent Runs
 
-python app/generate_answer.py
+When the knowledge base and FAISS index already exist, the application loads them from disk.
 
-The application accepts interactive questions:
+This avoids repeating document processing and FAISS index construction.
 
-Enter your query (type 'exit' to quit):
-💬 Example
-Query
-What is multi-head attention?
-Retrieved Context
+### Run the Complete RAG Pipeline
 
-The system retrieves the most relevant chunks from the Transformer paper using FAISS similarity search.
+    python app/generate_answer.py
 
-Generated Answer
-Multi-head attention is a mechanism that runs several attention
-layers in parallel. Each head uses learned query, key, and value
-projections to compute attention, and the results are combined
-to produce the output.
+The application then accepts interactive queries:
 
-The answer is generated using the retrieved document context.
+    Enter your query (type 'exit' to quit):
 
-🔍 Retrieval Configuration
-Parameter	Value
-Embedding Model	all-MiniLM-L6-v2
-Embedding Dimension	384
-Number of Chunks	89
-Chunk Size	500 characters
-Chunk Overlap	50 characters
-Vector Index	FAISS IndexFlatIP
-Similarity	Cosine similarity via normalized inner product
-Top-K Retrieval	3
-🎯 Current Capabilities
-Extract text from PDF documents
-Split documents into overlapping chunks
-Generate semantic embeddings
-Persist chunks and embeddings
-Build and persist a FAISS vector index
-Perform semantic similarity search
-Retrieve top-K relevant chunks
-Construct a context-grounded RAG prompt
-Generate answers using an LLM
-Interactive terminal-based question answering
-🚧 Current Limitations
+---
+
+## Example
+
+### Query
+
+    What is multi-head attention?
+
+### Retrieval
+
+The system generates an embedding for the query and searches the FAISS index.
+
+The top 3 semantically relevant chunks are retrieved from the Transformer paper.
+
+### Generated Answer
+
+The LLM receives the retrieved chunks as context and generates an answer based on that context.
+
+Example:
+
+    Multi-head attention is a mechanism that runs several attention
+    layers in parallel. Each head uses learned query, key, and value
+    projections to compute attention, and the results are combined
+    to produce the output.
+
+---
+
+## Retrieval Configuration
+
+| Parameter | Value |
+|---|---|
+| Embedding Model | `all-MiniLM-L6-v2` |
+| Embedding Dimension | 384 |
+| Number of Chunks | 89 |
+| Chunk Size | 500 characters |
+| Chunk Overlap | 50 characters |
+| Vector Index | FAISS `IndexFlatIP` |
+| Similarity | Cosine similarity using normalized Inner Product |
+| Top-K Retrieval | 3 |
+
+---
+
+## Persistence
+
+One of the important design decisions in this project is that the generated knowledge base and vector index are persisted locally.
+
+The first run performs:
+
+    Document
+       |
+       v
+    Chunking
+       |
+       v
+    Embeddings
+       |
+       v
+    Save Knowledge Base
+       |
+       v
+    Build FAISS Index
+       |
+       v
+    Save FAISS Index
+
+Later runs perform:
+
+    knowledge_base.pkl
+          |
+          v
+        Chunks
+
+    faiss_index.bin
+          |
+          v
+      FAISS Index
+
+Both are loaded directly without rebuilding the document representation.
+
+---
+
+## Current Capabilities
+
+- Extract text from PDF documents
+- Split documents into overlapping chunks
+- Generate semantic embeddings
+- Store chunks and embeddings persistently
+- Build a FAISS vector index
+- Persist the FAISS index to disk
+- Perform semantic similarity search
+- Retrieve top-K relevant chunks
+- Construct a context-grounded RAG prompt
+- Generate answers using an LLM
+- Interactively query the knowledge source through the terminal
+
+---
+
+## Current Limitations
 
 This is a Phase-I implementation focused on understanding the core RAG pipeline.
 
-Current limitations:
+Current limitations include:
 
-Single knowledge document
-Terminal-based interface
-No graphical user interface
-No user authentication
-No multi-user document isolation
-No document management interface
-No conversational memory
-🚀 Future Scope — Phase II
+- Single knowledge document
+- Terminal-based interaction
+- No graphical user interface
+- No user authentication
+- No multi-user document isolation
+- No document management interface
+- No conversational memory
 
-The next phase will transform this core RAG pipeline into a complete user-facing application.
+---
+
+## Future Scope — Phase II
+
+The next phase will transform the current RAG engine into a user-facing application.
 
 Planned features include:
 
-Web-based frontend
-Chatbot interface
-Multiple document uploads
-PDF / DOCX / TXT support
-User-specific document collections
-Automatic document ingestion
-Persistent vector database
-Conversational chat history
-Document management
-Source-aware responses
-Cloud deployment
+- Web-based frontend
+- Chatbot interface
+- Multiple document uploads
+- PDF, DOCX and TXT support
+- User-specific document collections
+- Automatic document ingestion
+- Persistent vector database
+- Conversational chat history
+- Document management
+- Source-aware responses
+- Cloud deployment
 
 The goal is to allow users to upload their own documents and ask natural-language questions about the information contained within them.
 
-📚 Knowledge Source
+---
+
+## Knowledge Source
 
 The current demonstration uses the research paper:
 
-Attention Is All You Need
+**Attention Is All You Need**
 
 by Ashish Vaswani et al.
 
 The paper is used as the knowledge source for demonstrating the RAG pipeline.
 
-📌 Project Status
-Phase I — Core RAG Pipeline
+---
 
-✅ Complete
+## Project Status
 
-PDF
- ↓
-Text Extraction
- ↓
-Chunking
- ↓
-Embeddings
- ↓
-Persistent Knowledge Base
- ↓
-FAISS Vector Search
- ↓
-Top-K Retrieval
- ↓
-RAG Prompt
- ↓
-LLM
- ↓
-Answer
-Phase II — Multi-Document RAG Application
+### Phase I — Core RAG Pipeline
 
-🚧 Planned
+**Complete**
 
-⭐ Key Learning Outcomes
+    PDF
+     |
+     v
+    Text Extraction
+     |
+     v
+    Chunking
+     |
+     v
+    Embeddings
+     |
+     v
+    Persistent Knowledge Base
+     |
+     v
+    FAISS Vector Search
+     |
+     v
+    Top-K Retrieval
+     |
+     v
+    RAG Prompt
+     |
+     v
+    LLM
+     |
+     v
+    Answer
 
-This project was built to understand the internal components of a RAG system rather than relying entirely on a black-box RAG framework.
+### Phase II — Multi-Document RAG Application
+
+**Planned**
+
+The next phase will build a complete frontend application around the existing RAG engine.
+
+---
+
+## Key Learning Outcomes
+
+This project was built to understand the internal components of a RAG system instead of relying entirely on a black-box RAG framework.
 
 Key concepts implemented and explored:
 
-Document preprocessing
-Text chunking
-Chunk overlap
-Semantic embeddings
-Vector representations
-Cosine similarity
-FAISS indexing
-Top-K retrieval
-Persistent knowledge bases
-RAG prompt construction
-Context-grounded generation
-Separation of retrieval and generation layers
+- Document preprocessing
+- Text chunking
+- Chunk overlap
+- Semantic embeddings
+- Vector representations
+- Cosine similarity
+- FAISS indexing
+- Top-K retrieval
+- Persistent knowledge bases
+- Persistent vector indexes
+- RAG prompt construction
+- Context-grounded generation
+- Separation of retrieval and generation layers
